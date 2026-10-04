@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import collections
+import contextlib
+import fcntl
 import os
 import queue
 import shutil
@@ -26,6 +28,7 @@ class Job:
     output: Path
     output_rel: str
     work_dir: Path
+    lock_path: Path | None = None
     status: str = "queued"
     progress: float = 0.0
     error: str | None = None
@@ -51,6 +54,24 @@ class Job:
         if self.status == "failed":
             d["stderr"] = "\n".join(self.stderr_tail)
         return d
+
+
+@contextlib.contextmanager
+def render_lock(path: Path | None):
+    """Exclusive lock on `path` (blocking), shared by every process using the
+    same workspace, so only one FFmpeg render runs at a time across processes."""
+    if path is None:
+        yield
+        return
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 class JobManager:
@@ -80,7 +101,8 @@ class JobManager:
         while True:
             job = self._queue.get()
             try:
-                self._execute(job)
+                with render_lock(job.lock_path):  # status stays 'queued' while waiting
+                    self._execute(job)
             except Exception as exc:  # never let the worker die
                 job.status = "failed"
                 job.error = f"Internal error while rendering: {exc}"

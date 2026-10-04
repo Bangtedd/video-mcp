@@ -1,0 +1,23 @@
+{
+  "id": "warm_promo",
+  "name": "Warm promo",
+  "description": "Warm colours and soft fades, a title up top and a call to action at the end.",
+  "preset": "vertical",
+  "fit": "crop",
+  "look": "warm",
+  "gradient": "bottom",
+  "transition": {"type": "fade", "duration": 0.5},
+  "fade_in": 0.5,
+  "fade_out": 0.8,
+  "slots": [3, 2.5, 2.5, 3],
+  "music": {"volume": 0.35, "fade_in": 1.0, "fade_out": 1.5},
+  "clip_volume": 0.6,
+  "texts": [
+    {"key": "title", "label": "Title", "placeholder": "Fresh bread daily",
+     "position": "top", "size": "large", "color": "white", "box": false, "fade": true,
+     "from_start": 0.3, "duration": 2.5},
+    {"key": "cta", "label": "Call to action", "placeholder": "Visit us on Main Street",
+     "position": "bottom", "size": "medium", "color": "#ffd166", "box": true, "fade": true,
+     "from_end": 0.3, "duration": 2.5}
+  ]
+}

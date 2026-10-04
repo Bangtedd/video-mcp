@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Video maker</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <h1>Video maker</h1>
+  <nav>
+    <a href="#videos" class="link">My videos</a>
+    <button type="button" id="logout" class="link">Log out</button>
+  </nav>
+</header>
+
+<main>
+  <p id="banner" class="banner" role="alert" hidden></p>
+
+  <section class="card" id="step-upload" aria-labelledby="h-upload">
+    <h2 id="h-upload"><span class="num">1</span> Add your clips</h2>
+    <div class="row-buttons">
+      <label class="button primary file-button">
+        <input type="file" id="pick-clips" multiple accept="video/*,.mp4,.mov,.m4v,.webm">
+        Choose videos
+      </label>
+      <label class="button file-button">
+        <input type="file" id="pick-music" accept="audio/*,.mp3,.m4a,.wav">
+        Add music
+      </label>
+    </div>
+    <p class="hint">Videos: mp4, mov, m4v, webm. Music (optional): mp3, m4a, wav. Up to 500 MB each.</p>
+    <ul id="uploads" class="uploads"></ul>
+    <div id="music-row"></div>
+  </section>
+
+  <section class="card" id="step-template" aria-labelledby="h-template">
+    <h2 id="h-template"><span class="num">2</span> Pick a template</h2>
+    <p class="hint" id="template-hint">Add a clip to see each template on your own footage.</p>
+    <div id="templates" class="templates" role="radiogroup" aria-labelledby="h-template"></div>
+  </section>
+
+  <section class="card" id="step-text" aria-labelledby="h-text">
+    <h2 id="h-text"><span class="num">3</span> Add your text</h2>
+    <div id="text-fields"><p class="hint">Pick a template first.</p></div>
+  </section>
+
+  <section class="card" id="step-make" aria-labelledby="h-make">
+    <h2 id="h-make"><span class="num">4</span> Make the video</h2>
+    <button type="button" id="make" class="primary wide" disabled>Make video</button>
+    <div id="make-progress" class="progress-block" hidden>
+      <p class="status" id="make-status">Preparing…</p>
+      <div class="bar"><div id="make-bar"></div></div>
+    </div>
+    <div id="preview" hidden>
+      <video id="preview-video" controls playsinline preload="metadata"></video>
+      <div class="row-buttons">
+        <button type="button" id="final" class="primary">Render full quality</button>
+        <button type="button" id="another">Try another template</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="step-download" aria-labelledby="h-download">
+    <h2 id="h-download"><span class="num">5</span> Download</h2>
+    <p class="hint" id="download-hint">Render full quality to get the final file.</p>
+    <div id="final-progress" class="progress-block" hidden>
+      <p class="status" id="final-status">Rendering…</p>
+      <div class="bar"><div id="final-bar"></div></div>
+    </div>
+    <a id="download" class="button primary wide" hidden download>Download video</a>
+  </section>
+
+  <section class="card" id="videos" aria-labelledby="h-videos">
+    <h2 id="h-videos">My videos</h2>
+    <video id="player" controls playsinline preload="metadata" hidden></video>
+    <ul id="video-list" class="video-list"></ul>
+  </section>
+
+  <p class="footer">
+    <button type="button" id="start-over" class="link">Start over with new clips</button>
+  </p>
+</main>
+</body>
+</html>

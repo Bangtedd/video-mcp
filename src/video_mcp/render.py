@@ -7,8 +7,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import Config
+from .effects import gradient_edges, gradient_png, look_filters
 from .errors import VideoMCPError
-from .timeline import FPS, PRESETS, clip_output_duration, frames_for, timeline_problems
+from .timeline import (
+    FPS,
+    PRESETS,
+    TEXT_FADE,
+    clip_output_duration,
+    frames_for,
+    join_overlaps,
+    timeline_problems,
+    transition_of,
+)
 from .workspace import Workspace
 
 SAMPLE_RATE = 48000
@@ -23,6 +33,10 @@ QUALITY = {
     "final": {"scale": 1, "preset": "veryfast", "crf": "20", "audio_bitrate": "160k"},
     "preview": {"scale": 2, "preset": "ultrafast", "crf": "30", "audio_bitrate": "96k"},
 }
+
+# Project transition type -> xfade transition name (all available in FFmpeg 5.1).
+XFADE = {"fade": "fade", "slide_left": "slideleft", "slide_up": "slideup", "zoom": "zoomin"}
+SAMPLES_PER_FRAME = SAMPLE_RATE // FPS
 
 AFMT = f"aformat=sample_fmts=fltp:sample_rates={SAMPLE_RATE}:channel_layouts=stereo"
 
@@ -101,7 +115,7 @@ def build_render(
 
     inputs: list[str] = []
     chains: list[str] = []
-    concat_pads: list[str] = []
+    frames_list: list[int] = []
     total_frames = 0
 
     for i, clip in enumerate(project["clips"]):
@@ -112,6 +126,7 @@ def build_render(
         seg = frames / FPS
         samples = int(round(seg * SAMPLE_RATE))
         total_frames += frames
+        frames_list.append(frames)
         inputs += ["-ss", f"{clip['start']:.3f}", "-t", f"{src_len:.3f}", "-i", str(src)]
 
         if fit == "crop":
@@ -141,14 +156,58 @@ def build_render(
                 f"anullsrc=r={SAMPLE_RATE}:cl=stereo,atrim=end_sample={samples},"
                 f"{AFMT},asetpts=PTS-STARTPTS[a{i}]"
             )
-        concat_pads.append(f"[v{i}][a{i}]")
 
-    n = len(project["clips"])
+    # Joins: runs of clips linked by transitions are chained with xfade (video) and
+    # acrossfade (audio); the runs are then concatenated (hard cuts).
+    overlaps = join_overlaps(project)
+    tr = transition_of(project)
+    groups: list[tuple[str, str]] = []
+    cur_v, cur_a, cur_frames = "v0", "a0", frames_list[0]
+    for j, ov in enumerate(overlaps, start=1):
+        if ov == 0:
+            groups.append((cur_v, cur_a))
+            cur_v, cur_a, cur_frames = f"v{j}", f"a{j}", frames_list[j]
+            continue
+        offset = (cur_frames - ov) / FPS
+        chains.append(
+            f"[{cur_v}][v{j}]xfade=transition={XFADE[tr['type']]}:"
+            f"duration={ov / FPS:.6f}:offset={offset:.6f}[xv{j}]"
+        )
+        chains.append(
+            f"[{cur_a}][a{j}]acrossfade=ns={ov * SAMPLES_PER_FRAME}:c1=tri:c2=tri[xa{j}]"
+        )
+        cur_v, cur_a = f"xv{j}", f"xa{j}"
+        cur_frames += frames_list[j] - ov
+    groups.append((cur_v, cur_a))
+    total_frames -= sum(overlaps)
     duration = total_frames / FPS
-    chains.append("".join(concat_pads) + f"concat=n={n}:v=1:a=1[vcat][acat]")
+    chains.append(
+        "".join(f"[{v}][{a}]" for v, a in groups)
+        + f"concat=n={len(groups)}:v=1:a=1[vcat][acat]"
+    )
+    n_inputs = len(project["clips"])
+    video_label = "vcat"
+
+    # Look: one colour grade over the whole timeline.
+    look = look_filters(project.get("look") or "none")
+    if look:
+        chains.append(f"[{video_label}]" + ",".join(look) + ",format=yuv420p[vlook]")
+        video_label = "vlook"
+
+    # Gradient under the text, from PNG strips generated with Pillow.
+    for edge in gradient_edges(project.get("gradient") or "none"):
+        png = gradient_png(ws.cache, edge, W, H)
+        inputs += ["-i", str(png)]
+        y = "0" if edge == "top" else "main_h-overlay_h"
+        chains.append(f"[{n_inputs}:v]format=rgba[g{edge}]")
+        chains.append(
+            f"[{video_label}][g{edge}]overlay=x=0:y={y}:eof_action=repeat:format=yuv420,"
+            f"format=yuv420p[vg{edge}]"
+        )
+        video_label = f"vg{edge}"
+        n_inputs += 1
 
     # Text overlays.
-    video_label = "vcat"
     texts = project.get("texts") or []
     if texts:
         font = Path(cfg.font_file)
@@ -180,6 +239,12 @@ def build_render(
                 f"y={escape_option(y)}",
                 f"enable={escape_option(enable)}",
             ]
+            if t.get("fade"):
+                f = min(TEXT_FADE, (t["end"] - t["start"]) / 2)
+                alpha = (
+                    f"clip(min((t-{t['start']:.3f})/{f:.3f},({t['end']:.3f}-t)/{f:.3f}),0,1)"
+                )
+                opts.append(f"alpha={escape_option(alpha)}")
             if t.get("box"):
                 opts += [
                     "box=1",
@@ -187,7 +252,7 @@ def build_render(
                     f"boxborderw={max(2, int(size * 0.3))}",
                 ]
             draws.append("drawtext=" + ":".join(opts))
-        chains.append(f"[vcat]{','.join(draws)}[vtxt]")
+        chains.append(f"[{video_label}]{','.join(draws)}[vtxt]")
         video_label = "vtxt"
 
     # Music bed.
@@ -201,7 +266,7 @@ def build_render(
                 "Music offset is past the end of the music file. Lower it with set_music()."
             )
         m_len = min(duration, available)
-        mi = n
+        mi = n_inputs
         inputs += ["-ss", f"{music['offset']:.3f}", "-i", str(mpath)]
         mf = ["asetpts=PTS-STARTPTS", f"aresample={SAMPLE_RATE}", AFMT,
               f"volume={float(music['volume']):.4f}", f"atrim=duration={m_len:.6f}"]
@@ -216,6 +281,22 @@ def build_render(
             "[acat][mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[amix]"
         )
         audio_label = "amix"
+
+    # Intro / outro fades on picture and sound.
+    fade_in = min(float(project.get("fade_in") or 0), duration)
+    fade_out = min(float(project.get("fade_out") or 0), duration)
+    vf, af = [], []
+    if fade_in > 0:
+        vf.append(f"fade=t=in:st=0:d={fade_in:.3f}")
+        af.append(f"afade=t=in:st=0:d={fade_in:.3f}")
+    if fade_out > 0:
+        st = duration - fade_out
+        vf.append(f"fade=t=out:st={st:.3f}:d={fade_out:.3f}")
+        af.append(f"afade=t=out:st={st:.3f}:d={fade_out:.3f}")
+    if vf:
+        chains.append(f"[{video_label}]{','.join(vf)}[vfade]")
+        chains.append(f"[{audio_label}]{','.join(af)}[afade]")
+        video_label, audio_label = "vfade", "afade"
 
     filter_complex = ";\n".join(chains)
     args = [

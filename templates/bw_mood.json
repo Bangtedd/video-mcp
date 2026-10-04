@@ -1,0 +1,20 @@
+{
+  "id": "bw_mood",
+  "name": "Black & white",
+  "description": "Moody black and white with sliding transitions and a title at the top.",
+  "preset": "vertical",
+  "fit": "crop",
+  "look": "bw",
+  "gradient": "both",
+  "transition": {"type": "slide_left", "duration": 0.6},
+  "fade_in": 0.5,
+  "fade_out": 1.0,
+  "slots": [3, 2.5, 3, 2.5],
+  "music": {"volume": 0.4, "fade_in": 1.0, "fade_out": 1.5},
+  "clip_volume": 0.5,
+  "texts": [
+    {"key": "title", "label": "Title", "placeholder": "Old town",
+     "position": "top", "size": "large", "color": "white", "box": false, "fade": true,
+     "from_start": 0.3, "duration": 3}
+  ]
+}

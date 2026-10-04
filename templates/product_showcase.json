@@ -1,0 +1,26 @@
+{
+  "id": "product_showcase",
+  "name": "Product showcase",
+  "description": "Dark, contrasty shots of your product with its name, price and a call to action.",
+  "preset": "vertical",
+  "fit": "crop",
+  "look": "moody",
+  "gradient": "bottom",
+  "transition": {"type": "slide_up", "duration": 0.4},
+  "fade_in": 0.3,
+  "fade_out": 0.5,
+  "slots": [2.5, 2.5, 2.5, 2.5, 2.5],
+  "music": {"volume": 0.4, "fade_in": 0.5, "fade_out": 1.0},
+  "clip_volume": 0.3,
+  "texts": [
+    {"key": "product", "label": "Product name", "placeholder": "Handmade mug",
+     "position": "center", "size": "large", "color": "white", "box": false, "fade": true,
+     "from_start": 0.3, "duration": 3.5},
+    {"key": "price", "label": "Price", "placeholder": "$24",
+     "position": "bottom", "size": "large", "color": "#ffd166", "box": false, "fade": true,
+     "from_start": 0.8, "duration": 3.5},
+    {"key": "cta", "label": "Call to action", "placeholder": "Order today",
+     "position": "bottom", "size": "medium", "color": "white", "box": true, "fade": true,
+     "from_end": 0.3, "duration": 2.5}
+  ]
+}

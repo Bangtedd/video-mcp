@@ -1,0 +1,20 @@
+{
+  "id": "fast_hype",
+  "name": "Fast hype",
+  "description": "Quick 1-second cuts, punchy colours and a big title to open.",
+  "preset": "vertical",
+  "fit": "crop",
+  "look": "vivid",
+  "gradient": "none",
+  "transition": {"type": "cut"},
+  "fade_in": 0,
+  "fade_out": 0.3,
+  "slots": [1.2, 0.8, 1.0, 0.8, 1.2, 0.8, 1.0, 1.2],
+  "music": {"volume": 0.6, "fade_in": 0, "fade_out": 0.5},
+  "clip_volume": 0.3,
+  "texts": [
+    {"key": "title", "label": "Big title", "placeholder": "LET'S GO",
+     "position": "center", "size": "large", "color": "white", "box": false, "fade": false,
+     "from_start": 0, "duration": 2}
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "clean_cuts",
+  "name": "Clean cuts",
+  "description": "Simple hard cuts every 2 seconds with one caption along the bottom.",
+  "preset": "vertical",
+  "fit": "crop",
+  "look": "none",
+  "gradient": "none",
+  "transition": {"type": "cut"},
+  "fade_in": 0,
+  "fade_out": 0,
+  "slots": [2, 2, 2, 2, 2],
+  "music": {"volume": 0.4, "fade_in": 0.5, "fade_out": 1.0},
+  "clip_volume": 0.8,
+  "texts": [
+    {"key": "caption", "label": "Caption", "placeholder": "Saturday at the lake",
+     "position": "bottom", "size": "medium", "color": "white", "box": true, "fade": false,
+     "from_start": 0, "duration": 600}
+  ]
+}

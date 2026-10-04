@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "video-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "MCP server that lets Claude edit video by driving FFmpeg"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,6 +12,7 @@ dependencies = [
     "mcp>=1.12,<2",
     "uvicorn>=0.30",
     "starlette>=0.40",
+    "pillow>=9.4",
 ]
 
 [project.optional-dependencies]
@@ -19,9 +20,13 @@ test = ["pytest>=7"]
 
 [project.scripts]
 video-mcp = "video_mcp.server:main"
+video-mcp-web = "video_mcp.web.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"video_mcp.web" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

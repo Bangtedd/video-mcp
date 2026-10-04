@@ -25,6 +25,10 @@ create_project -> add_clip (trim with start/end) -> set_music -> add_text ->
 render('preview') -> get_job until done -> get_frame on the render to check ->
 render('final'). Times for clips are seconds in the source file; times for
 texts are seconds on the output timeline (see get_project's output_duration).
+Finishing: set_transition, set_look, set_gradient and set_fades. Shortcut:
+list_templates -> apply_template(project, template_id, files, texts) builds a
+whole project (suggest_segments picks the liveliest part of each clip); it can
+then be adjusted with the other tools.
 """
 
 mcp = FastMCP("video-mcp", instructions=INSTRUCTIONS)
@@ -55,6 +59,9 @@ Preset = Literal["vertical", "square", "landscape"]
 Fit = Literal["crop", "pad"]
 Position = Literal["top", "center", "bottom"]
 Size = Literal["small", "medium", "large"]
+Transition = Literal["cut", "fade", "slide_left", "slide_up", "zoom"]
+Look = Literal["none", "warm", "cool", "vivid", "film", "bw", "moody"]
+Gradient = Literal["none", "bottom", "top", "both"]
 
 
 @mcp.tool()
@@ -161,11 +168,14 @@ async def add_text(
     size: Size = "medium",
     color: str = "white",
     box: bool = False,
+    fade: bool = False,
 ) -> dict[str, Any]:
     """Add a text overlay shown from start to end (seconds on the output timeline).
     Newlines are kept; long lines wrap automatically. color: name or '#rrggbb'.
-    box: semi-transparent dark background behind the text."""
-    return await _call(editor().add_text, project, text, start, end, position, size, color, box)
+    box: semi-transparent dark background behind the text. fade: 0.3 s fade in/out."""
+    return await _call(
+        editor().add_text, project, text, start, end, position, size, color, box, fade
+    )
 
 
 @mcp.tool()
@@ -179,10 +189,11 @@ async def update_text(
     size: Size | None = None,
     color: str | None = None,
     box: bool | None = None,
+    fade: bool | None = None,
 ) -> dict[str, Any]:
     """Change any field of a text overlay. Omitted fields are left unchanged."""
     return await _call(
-        editor().update_text, project, text_id, text, start, end, position, size, color, box
+        editor().update_text, project, text_id, text, start, end, position, size, color, box, fade
     )
 
 
@@ -190,6 +201,67 @@ async def update_text(
 async def remove_text(project: str, text_id: str) -> dict[str, Any]:
     """Remove a text overlay."""
     return await _call(editor().remove_text, project, text_id)
+
+
+@mcp.tool()
+async def set_transition(project: str, type: Transition = "cut", duration: float = 0.5) -> dict[str, Any]:
+    """Transition used between every pair of clips: cut, fade, slide_left, slide_up
+    or zoom; duration 0.2-1.0 s. Transitions overlap clips, so the video gets
+    shorter (get_project reports the new output_duration). A join where either
+    clip is shorter than twice the duration falls back to a cut."""
+    return await _call(editor().set_transition, project, type, duration)
+
+
+@mcp.tool()
+async def set_look(project: str, look: Look) -> dict[str, Any]:
+    """Colour look for the whole video: none, warm, cool, vivid, film (faded matte),
+    bw (black and white) or moody (darker, contrasty, slight vignette)."""
+    return await _call(editor().set_look, project, look)
+
+
+@mcp.tool()
+async def set_gradient(project: str, gradient: Gradient) -> dict[str, Any]:
+    """Dark-to-transparent gradient over 35% of the frame at the bottom, top, both
+    or none, drawn under the text so captions stay readable."""
+    return await _call(editor().set_gradient, project, gradient)
+
+
+@mcp.tool()
+async def set_fades(project: str, fade_in: float = 0.0, fade_out: float = 0.0) -> dict[str, Any]:
+    """Fade the whole video (picture and sound) in from black at the start and out
+    at the end. Each 0-2 seconds; 0 disables."""
+    return await _call(editor().set_fades, project, fade_in, fade_out)
+
+
+@mcp.tool()
+async def suggest_segments(file: str, length: float, count: int = 1) -> dict[str, Any]:
+    """Best `count` non-overlapping windows of `length` seconds in a clip, scored by
+    motion (skipping the first and last 0.5 s). Use the start/end with add_clip.
+    method is 'motion', or 'even' when the file is short, static or unanalysable."""
+    return await _call(editor().suggest_segments, file, length, count)
+
+
+@mcp.tool()
+async def list_templates() -> dict[str, Any]:
+    """Templates (from templates/*.json): id, name, description, nominal duration
+    and the text fields each one takes."""
+    return await _call(editor().list_templates)
+
+
+@mcp.tool()
+async def apply_template(
+    project: str,
+    template_id: str,
+    files: list[str],
+    texts: dict[str, str] | None = None,
+    music: str | None = None,
+) -> dict[str, Any]:
+    """Build a project from a template. files: clips in order (fewer than the
+    template's slots cycle through, more repeat the slot pattern; an audio-only
+    file is used as music). texts: {key: text} for the template's text fields;
+    empty ones are skipped. Creates the project, or replaces its timeline if it
+    exists. The result is a normal project you can still edit."""
+    return await _call(editor().apply_template, project, template_id, files, texts, music)
 
 
 @mcp.tool()

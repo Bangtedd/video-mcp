@@ -31,6 +31,8 @@ TOOLS = {
     "list_media", "probe_media", "get_frame", "create_project", "list_projects",
     "get_project", "add_clip", "update_clip", "move_clip", "remove_clip", "set_music",
     "add_text", "update_text", "remove_text", "render", "get_job",
+    "set_transition", "set_look", "set_gradient", "set_fades", "suggest_segments",
+    "list_templates", "apply_template",
 }
 
 
