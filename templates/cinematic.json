@@ -1,0 +1,20 @@
+{
+  "id": "cinematic",
+  "name": "Cinematic",
+  "description": "Faded film look, long shots and slow dissolves, with a small caption.",
+  "preset": "vertical",
+  "fit": "crop",
+  "look": "film",
+  "gradient": "bottom",
+  "transition": {"type": "fade", "duration": 1.0},
+  "fade_in": 1.5,
+  "fade_out": 2.0,
+  "slots": [3.5, 4, 3, 4],
+  "music": {"volume": 0.45, "fade_in": 2.0, "fade_out": 2.5},
+  "clip_volume": 0.4,
+  "texts": [
+    {"key": "caption", "label": "Caption", "placeholder": "Somewhere in the hills",
+     "position": "bottom", "size": "small", "color": "white", "box": false, "fade": true,
+     "from_start": 1.5, "duration": 4}
+  ]
+}

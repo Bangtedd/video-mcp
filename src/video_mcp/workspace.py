@@ -41,6 +41,11 @@ class Workspace:
     def cache(self) -> Path:
         return self.root / "cache"
 
+    @property
+    def render_lock(self) -> Path:
+        """Lock file serialising FFmpeg renders across processes (MCP server, web app)."""
+        return self.root / ".render.lock"
+
     def relative(self, path: Path) -> str:
         """Workspace-relative POSIX path, as shown to the client."""
         return Path(path).resolve().relative_to(self.root).as_posix()

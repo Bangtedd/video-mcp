@@ -20,6 +20,14 @@ TEXT_SIZES = ("small", "medium", "large")
 SPEED_RANGE = (0.25, 4.0)
 VOLUME_RANGE = (0.0, 2.0)
 MAX_TEXT_LEN = 500
+TRANSITIONS = ("cut", "fade", "slide_left", "slide_up", "zoom")
+TRANSITION_RANGE = (0.2, 1.0)
+DEFAULT_TRANSITION = {"type": "cut", "duration": 0.5}
+LOOKS = ("none", "warm", "cool", "vivid", "film", "bw", "moody")
+GRADIENTS = ("none", "bottom", "top", "both")
+FADE_RANGE = (0.0, 2.0)
+# Fade in/out time for text overlays with fade=true.
+TEXT_FADE = 0.3
 # Allow tiny float noise when comparing against file / timeline ends.
 EPS = 1e-3
 
@@ -111,10 +119,41 @@ def frames_for(seconds: float) -> int:
     return max(1, int(round(seconds * FPS)))
 
 
+def transition_of(project: dict) -> dict:
+    """The project's transition; projects from before v2 have none (hard cuts)."""
+    return project.get("transition") or dict(DEFAULT_TRANSITION)
+
+
+def clip_frames(project: dict) -> list[int]:
+    return [frames_for(clip_output_duration(c)) for c in project["clips"]]
+
+
+def join_overlaps(project: dict) -> list[int]:
+    """Overlap in frames for each join between consecutive clips.
+
+    A transition overlaps the two clips it joins. If either clip is shorter
+    than twice the transition duration, that join falls back to a hard cut (0),
+    so a clip never has to take part in two overlapping transitions.
+    """
+    frames = clip_frames(project)
+    tr = transition_of(project)
+    if tr["type"] == "cut":
+        return [0] * max(0, len(frames) - 1)
+    d = max(1, int(round(tr["duration"] * FPS)))
+    return [
+        d if frames[i] >= 2 * d and frames[i + 1] >= 2 * d else 0
+        for i in range(len(frames) - 1)
+    ]
+
+
+def timeline_frames(project: dict) -> int:
+    return sum(clip_frames(project)) - sum(join_overlaps(project))
+
+
 def timeline_duration(project: dict) -> float:
-    """Output duration, accounting for frame quantisation at 30 fps."""
-    frames = sum(frames_for(clip_output_duration(c)) for c in project["clips"])
-    return round(frames / FPS, 3)
+    """Output duration, accounting for frame quantisation at 30 fps and for
+    transitions, which overlap neighbouring clips and so shorten the video."""
+    return round(timeline_frames(project) / FPS, 3)
 
 
 def timeline_problems(project: dict) -> list[str]:
@@ -139,16 +178,29 @@ def summarize(project: dict) -> dict:
     out["output_duration"] = timeline_duration(project) if project["clips"] else 0.0
     out["width"], out["height"] = PRESETS[project["preset"]]
     out["fps"] = FPS
-    timeline_pos = 0.0
+    out["transition"] = transition_of(project)
+    out.setdefault("look", "none")
+    out.setdefault("gradient", "none")
+    out.setdefault("fade_in", 0.0)
+    out.setdefault("fade_out", 0.0)
+    pos = 0
     clips = []
-    for c in project["clips"]:
-        dur = frames_for(clip_output_duration(c)) / FPS
+    overlaps = join_overlaps(project)
+    for i, (c, frames) in enumerate(zip(project["clips"], clip_frames(project))):
+        if i > 0:
+            pos -= overlaps[i - 1]
         clips.append(
-            {**c, "timeline_start": round(timeline_pos, 3),
-             "timeline_end": round(timeline_pos + dur, 3)}
+            {**c, "timeline_start": round(pos / FPS, 3),
+             "timeline_end": round((pos + frames) / FPS, 3)}
         )
-        timeline_pos += dur
+        pos += frames
     out["clips"] = clips
+    out["transitions"] = [
+        {"after_clip": project["clips"][i]["id"],
+         "type": transition_of(project)["type"] if ov else "cut",
+         "overlap": round(ov / FPS, 3)}
+        for i, ov in enumerate(overlaps)
+    ]
     problems = timeline_problems(project)
     if problems:
         out["problems"] = problems

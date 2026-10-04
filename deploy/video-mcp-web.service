@@ -1,0 +1,32 @@
+# systemd user unit for video-mcp-web (the phone-friendly web app).
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/video-mcp-web.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now video-mcp-web
+#   sudo loginctl enable-linger "$USER"   # keep it running when logged out
+#
+# Assumes the repo is cloned to ~/video-mcp with a virtualenv in ~/video-mcp/.venv.
+# Settings come from ~/video-mcp/.env (see .env.example). WEB_PASSWORD must be
+# set there or the app refuses to start.
+#
+# Home network only: do not port-forward this to the internet.
+
+[Unit]
+Description=video-mcp-web: make videos from templates in the browser
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/video-mcp
+EnvironmentFile=-%h/video-mcp/.env
+ExecStart=%h/video-mcp/.venv/bin/video-mcp-web
+Restart=on-failure
+RestartSec=3
+# Renders are CPU heavy; keep the Pi responsive.
+Nice=5
+
+[Install]
+WantedBy=default.target

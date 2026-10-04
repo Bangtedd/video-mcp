@@ -1,0 +1,20 @@
+{
+  "id": "story_vlog",
+  "name": "Story vlog",
+  "description": "Longer shots with zoom transitions and a cool tone. Your clips' sound stays up front.",
+  "preset": "vertical",
+  "fit": "crop",
+  "look": "cool",
+  "gradient": "top",
+  "transition": {"type": "zoom", "duration": 0.6},
+  "fade_in": 0.5,
+  "fade_out": 1.0,
+  "slots": [4.5, 4, 5, 4.5],
+  "music": {"volume": 0.12, "fade_in": 1.0, "fade_out": 2.0},
+  "clip_volume": 1.0,
+  "texts": [
+    {"key": "title", "label": "Title", "placeholder": "Day 3: the coast",
+     "position": "top", "size": "medium", "color": "white", "box": false, "fade": true,
+     "from_start": 0.5, "duration": 3}
+  ]
+}

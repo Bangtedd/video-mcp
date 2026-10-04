@@ -12,17 +12,23 @@ import time
 import uuid
 from pathlib import Path
 
-from . import ffmpeg
+from . import ffmpeg, segments
 from .config import Config
 from .errors import VideoMCPError
 from .jobs import JobManager
 from .render import build_render
+from .templates import check_template_id, load_templates, text_timing
 from .timeline import (
+    FADE_RANGE,
     FITS,
+    GRADIENTS,
+    LOOKS,
     PRESETS,
     SPEED_RANGE,
     TEXT_POSITIONS,
     TEXT_SIZES,
+    TRANSITION_RANGE,
+    TRANSITIONS,
     VOLUME_RANGE,
     check_choice,
     check_color,
@@ -137,20 +143,29 @@ class Editor:
                     f"Project {name!r} already exists. Pick another name or use get_project()."
                 )
             now = time.time()
-            project = {
-                "name": name,
-                "preset": preset,
-                "fit": fit,
-                "clips": [],
-                "music": None,
-                "texts": [],
-                "next_clip_id": 1,
-                "next_text_id": 1,
-                "created_at": now,
-                "updated_at": now,
-            }
+            project = self._new_project(name, preset, fit, now)
             self._save(project)
         return summarize(project)
+
+    @staticmethod
+    def _new_project(name: str, preset: str, fit: str, created_at: float) -> dict:
+        return {
+            "name": name,
+            "preset": preset,
+            "fit": fit,
+            "clips": [],
+            "music": None,
+            "texts": [],
+            "transition": {"type": "cut", "duration": 0.5},
+            "look": "none",
+            "gradient": "none",
+            "fade_in": 0.0,
+            "fade_out": 0.0,
+            "next_clip_id": 1,
+            "next_text_id": 1,
+            "created_at": created_at,
+            "updated_at": created_at,
+        }
 
     def list_projects(self) -> dict:
         out = []
@@ -330,6 +345,7 @@ class Editor:
         size: str = "medium",
         color: str = "white",
         box: bool = False,
+        fade: bool = False,
     ) -> dict:
         txt = check_text(text)
         s = check_nonneg("start", start)
@@ -339,6 +355,8 @@ class Editor:
         col = check_color(color)
         if not isinstance(box, bool):
             raise VideoMCPError("box must be true or false.")
+        if not isinstance(fade, bool):
+            raise VideoMCPError("fade must be true or false.")
         with self._lock:
             p = self._load(project)
             self._check_text_span(p, "Text", s, e)
@@ -351,6 +369,7 @@ class Editor:
                 "size": size,
                 "color": col,
                 "box": box,
+                "fade": fade,
             }
             p["next_text_id"] += 1
             p["texts"].append(item)
@@ -368,6 +387,7 @@ class Editor:
         size: str | None = None,
         color: str | None = None,
         box: bool | None = None,
+        fade: bool | None = None,
     ) -> dict:
         with self._lock:
             p = self._load(project)
@@ -389,6 +409,10 @@ class Editor:
                 if not isinstance(box, bool):
                     raise VideoMCPError("box must be true or false.")
                 new["box"] = box
+            if fade is not None:
+                if not isinstance(fade, bool):
+                    raise VideoMCPError("fade must be true or false.")
+                new["fade"] = fade
             self._check_text_span(p, f"Text {text_id}", new["start"], new["end"])
             item.update(new)
             self._save(p)
@@ -400,6 +424,241 @@ class Editor:
             removed = p["texts"].pop(self._find(p["texts"], text_id, "text"))
             self._save(p)
         return {"removed": removed["id"], "project": summarize(p)}
+
+    # ------------------------------------------------------------- effects
+
+    def _set_fields(self, project: str, **fields) -> dict:
+        with self._lock:
+            p = self._load(project)
+            p.update(fields)
+            self._save(p)
+        return summarize(p)
+
+    def set_transition(self, project: str, type: str = "cut", duration: float = 0.5) -> dict:
+        check_choice("type", type, TRANSITIONS)
+        d = check_range("duration", duration, *TRANSITION_RANGE)
+        out = self._set_fields(project, transition={"type": type, "duration": d})
+        return {"transition": out["transition"], "project": out}
+
+    def set_look(self, project: str, look: str) -> dict:
+        check_choice("look", look, LOOKS)
+        return {"look": look, "project": self._set_fields(project, look=look)}
+
+    def set_gradient(self, project: str, gradient: str) -> dict:
+        check_choice("gradient", gradient, GRADIENTS)
+        return {"gradient": gradient, "project": self._set_fields(project, gradient=gradient)}
+
+    def set_fades(self, project: str, fade_in: float = 0.0, fade_out: float = 0.0) -> dict:
+        fi = check_range("fade_in", fade_in, *FADE_RANGE)
+        fo = check_range("fade_out", fade_out, *FADE_RANGE)
+        out = self._set_fields(project, fade_in=fi, fade_out=fo)
+        return {"fade_in": fi, "fade_out": fo, "project": out}
+
+    # ------------------------------------------------------------ segments
+
+    def suggest_segments(self, file: str, length: float, count: int = 1) -> dict:
+        path = self.ws.resolve_file(file)
+        info = self._probe(path)
+        if not info["has_video"]:
+            raise VideoMCPError(f"{file!r} has no video stream.")
+        length = check_range("length", length, 0.1, 600)
+        if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 100:
+            raise VideoMCPError("count must be an integer between 1 and 100.")
+        dur = info["duration"]
+        windows = None
+        method = "motion"
+        if dur - 2 * segments.EDGE_SKIP >= length:
+            try:
+                samples = segments.cached_analysis(self.cfg.ffmpeg, self.ws.cache, path)
+                windows = segments.pick_windows(samples, dur, length, count)
+            except RuntimeError:
+                windows = None
+        if windows is None:
+            method = "even"
+            windows = [(s, e, None) for s, e in segments.even_windows(dur, length, count)]
+        return {
+            "file": self.ws.relative(path),
+            "duration": dur,
+            "length": length,
+            "count": count,
+            "method": method,
+            "segments": [
+                {"start": s, "end": e, **({"score": sc} if sc is not None else {})}
+                for s, e, sc in windows
+            ],
+        }
+
+    # ------------------------------------------------------------ templates
+
+    def _templates(self) -> dict[str, dict]:
+        return load_templates(self.cfg.templates_dir)[0]
+
+    def list_templates(self) -> dict:
+        templates, errors = load_templates(self.cfg.templates_dir)
+        items = []
+        for t in templates.values():
+            items.append(
+                {k: t[k] for k in ("id", "name", "description", "preset", "fit", "look",
+                                   "gradient", "transition", "fade_in", "fade_out", "slots",
+                                   "clip_volume", "music", "nominal_duration")}
+                | {"texts": [
+                    {k: f[k] for k in ("key", "label", "placeholder")} for f in t["texts"]
+                ]}
+            )
+        out = {"count": len(items), "templates": items}
+        if errors:
+            out["errors"] = errors
+        return out
+
+    def get_template(self, template_id: str) -> dict:
+        check_template_id(template_id)
+        t = self._templates().get(template_id)
+        if t is None:
+            ids = ", ".join(self._templates()) or "none"
+            raise VideoMCPError(f"No template {template_id!r}. Available: {ids}.")
+        return t
+
+    def apply_template(
+        self,
+        project: str,
+        template_id: str,
+        files: list[str],
+        texts: dict[str, str] | None = None,
+        music: str | None = None,
+    ) -> dict:
+        """Build `project` from a template, replacing its timeline if it exists."""
+        check_project_name(project)
+        t = self.get_template(template_id)
+        if not isinstance(files, list) or not files or not all(isinstance(f, str) for f in files):
+            raise VideoMCPError("files must be a non-empty list of file names from list_media().")
+        if len(files) > 200:
+            raise VideoMCPError("Too many files; use at most 200.")
+        texts = texts or {}
+        if not isinstance(texts, dict):
+            raise VideoMCPError("texts must be an object mapping text keys to strings.")
+        keys = {f["key"] for f in t["texts"]}
+        unknown = sorted(set(texts) - keys)
+        if unknown:
+            raise VideoMCPError(
+                f"Unknown text field(s) {', '.join(unknown)} for template {template_id!r}. "
+                f"It has: {', '.join(sorted(keys)) or 'none'}."
+            )
+
+        videos: list[tuple[Path, dict]] = []
+        audio_only: list[Path] = []
+        for f in files:
+            path = self.ws.resolve_file(f)
+            info = self._probe(path)
+            if info["has_video"]:
+                videos.append((path, info))
+            elif info["has_audio"]:
+                audio_only.append(path)
+            else:
+                raise VideoMCPError(f"{f!r} has neither video nor audio.")
+        if not videos:
+            raise VideoMCPError("Pass at least one video clip in files.")
+        music_path = self.ws.resolve_file(music) if music else None
+        if audio_only:
+            if music_path is not None or len(audio_only) > 1:
+                raise VideoMCPError("Pass at most one music file.")
+            music_path = audio_only[0]
+        music_info = self._probe(music_path) if music_path is not None else None
+        if music_info is not None and not music_info["has_audio"]:
+            raise VideoMCPError("The music file has no audio stream.")
+
+        # Slots: one per file at least; the slot pattern repeats, files cycle.
+        slots = t["slots"]
+        n = max(len(slots), len(videos))
+        uses: dict[int, list[int]] = {}
+        for k in range(n):
+            uses.setdefault(k % len(videos), []).append(k)
+        picked: dict[int, tuple[float, float]] = {}
+        for vi, ks in uses.items():
+            path, info = videos[vi]
+            longest = max(slots[k % len(slots)] for k in ks)
+            segs = self.suggest_segments(self.ws.relative(path), longest, len(ks))["segments"]
+            starts = [s["start"] for s in segs]
+            if len(starts) < len(ks):
+                # Not enough room for separate windows: add distinct, evenly spaced
+                # (overlapping) starts so each use still shows a different moment.
+                lo, hi = segments.usable_span(info["duration"], longest)
+                room = max(0.0, hi - lo - longest)
+                for i in range(len(ks)):
+                    cand = round(lo + room * i / max(1, len(ks) - 1), 3)
+                    if len(starts) < len(ks) and all(abs(cand - s) > 0.05 for s in starts):
+                        starts.append(cand)
+            for u, k in enumerate(ks):
+                slot = slots[k % len(slots)]
+                dur = info["duration"]
+                if dur <= slot:
+                    picked[k] = (0.0, dur)  # shorter than its slot: whole clip
+                    continue
+                start = min(starts[u % len(starts)], dur - slot)
+                picked[k] = (round(start, 3), round(start + slot, 3))
+
+        with self._lock:
+            path = self.ws.project_path(project)
+            created = time.time()
+            if path.exists():
+                created = self._load(project).get("created_at", created)
+            p = self._new_project(project, t["preset"], t["fit"], created)
+            p.update(
+                template=t["id"],
+                transition=dict(t["transition"]),
+                look=t["look"],
+                gradient=t["gradient"],
+                fade_in=t["fade_in"],
+                fade_out=t["fade_out"],
+            )
+            for k in range(n):
+                vpath, info = videos[k % len(videos)]
+                start, end = picked[k]
+                p["clips"].append({
+                    "id": f"c{p['next_clip_id']}",
+                    "file": self.ws.relative(vpath),
+                    "start": start,
+                    "end": end,
+                    "speed": 1.0,
+                    "volume": t["clip_volume"],
+                    "source_duration": info["duration"],
+                    "has_audio": info["has_audio"],
+                })
+                p["next_clip_id"] += 1
+            if music_path is not None:
+                p["music"] = {
+                    "file": self.ws.relative(music_path),
+                    "volume": t["music"]["volume"],
+                    "offset": 0.0,
+                    "fade_in": t["music"]["fade_in"],
+                    "fade_out": t["music"]["fade_out"],
+                    "duration": music_info["duration"],
+                }
+            total = timeline_duration(p)
+            skipped = []
+            for field in t["texts"]:
+                value = texts.get(field["key"])
+                if value is None or not str(value).strip():
+                    skipped.append(field["key"])
+                    continue
+                timing = text_timing(field, total)
+                if timing is None:
+                    skipped.append(field["key"])
+                    continue
+                p["texts"].append({
+                    "id": f"t{p['next_text_id']}",
+                    "key": field["key"],
+                    "text": check_text(str(value)),
+                    "start": timing[0],
+                    "end": timing[1],
+                    "position": field["position"],
+                    "size": field["size"],
+                    "color": field["color"],
+                    "box": field["box"],
+                    "fade": field["fade"],
+                })
+                p["next_text_id"] += 1
+            self._save(p)
+        return {"template": t["id"], "skipped_texts": skipped, "project": summarize(p)}
 
     # --------------------------------------------------------------- render
 
@@ -422,6 +681,7 @@ class Editor:
             output=output,
             output_rel=self.ws.relative(self.ws.renders) + "/" + output.name,
             work_dir=work_dir,
+            lock_path=self.ws.render_lock,
         )
         return {
             "job_id": job.id,
